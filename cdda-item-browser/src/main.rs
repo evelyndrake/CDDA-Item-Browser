@@ -117,42 +117,75 @@ fn main() -> Result<()>{
         egui::SidePanel::right("side_panel").default_width(300.0).show(ctx, |ui| {
             ui.heading("Information");
             ui.separator();
+            // TODO: Clean this part up, it's redundant and messy in some places
             if let Some(index) = selected_item {
                 // Display the information of the selected item
                 ui.heading(format!("{}", get_name(&items[index]).unwrap()));
                 // Description
                 if let Some(description) = get_property(&items[index].data, "description") {
-                    ui.label(RichText::new(description));
+                    ui.label(format!("{}", description));
                 }
                 ui.separator();
                 // Volume
                 if let Some(volume) = get_property(&items[index].data, "volume") {
-                    ui.label(format!("Volume: {}", volume));
+                    ui.label(RichText::new("Volume:").strong());
+                    ui.label(format!("{}", volume));
                 }
                 // Weight
                 if let Some(weight) = get_property(&items[index].data, "weight") {
-                    ui.label(format!("Weight: {}", weight));
+                    ui.label(RichText::new("Weight:").strong());
+                    ui.label(format!("{}", weight));
                 }
                 // Price
-                if let Some(price) = get_property(&items[index].data, "price") {
-                    ui.label(format!("Price: {}", price));
+                if let Some(price) = get_property(&items[index].data, "price_postapoc") {
+                    ui.label(RichText::new("Price:").strong());
+                    ui.label(format!("{}", price));
                 }
                 // Material
                 if let Some(material) = get_property(&items[index].data, "material") {
-                    ui.label(format!("Material: {}", material));
+                    ui.label(RichText::new("Material:").strong());
+                    ui.label(format!("{}", material));
                 }
                 // Flags
                 if let Some(flags) = items[index].data.get("flags") {
-                    ui.label("Flags:");
+                    ui.label(RichText::new("Flags:").strong());
                     for flag in flags.as_array().unwrap() {
-                        ui.label(format!("{}", flag.as_str().unwrap()));
+                        ui.label(format!("\t{}", flag.as_str().unwrap()));
                     }
                 }
                 ui.separator();
                 // Display the rest of the properties
                 for (key, value) in items[index].data.as_object().unwrap() {
-                    if key != "name" && key != "description" && key != "volume" && key != "weight" && key != "price" && key != "material" && key != "flags" {
-                        ui.label(format!("{}: {}", key, value));
+                    // If the line starts with a //, skip over it (developer comments)
+                    if key.starts_with("//") {
+                        continue;
+                    }
+                    let key = {
+                        let mut chars = key.chars();
+                        chars.next().unwrap().to_uppercase().collect::<String>() + chars.as_str()
+                    };
+                    if key != "Name" && key != "Description" && key != "Volume" && key != "Weight" && key != "Price_postapoc" && key != "Price" && key != "Material" && key != "Flags" {
+                        // If a property is a list of values, list them out nicely
+                        if value.is_array() {
+                            ui.label(RichText::new(format!("{}:", key)).strong());
+                            for item in value.as_array().unwrap() {
+                                if item.is_array() {
+                                    for subitem in item.as_array().unwrap() {
+                                        // If it's a number, don't make a new label
+                                        if subitem.is_number() {
+                                            // ui.label(format!("\t {}", subitem));
+                                        } else if subitem.is_string() {
+                                            ui.label(format!("\t {}", subitem.as_str().unwrap()));
+                                        }
+                                    }
+                                } else if item.is_string() {
+                                    ui.label(format!("\t  {}", item.as_str().unwrap()));
+                                }
+                            }
+                        } else if value.is_string() {
+                            ui.label(RichText::new(format!("{}:", key)).strong());
+                            ui.label(format!("{}", value.as_str().unwrap()));
+                        }
                     }
                 }
             } else {
