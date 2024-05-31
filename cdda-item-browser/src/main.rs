@@ -6,7 +6,8 @@ use serde_json::Value;
 use eframe::egui;
 use anyhow::Result;
 use std::path::PathBuf;
-
+use nfd::Response;
+use native_dialog::{MessageDialog, MessageType};
 struct Item { // Representation of a CDDA item
     data: Value,
 }
@@ -28,16 +29,58 @@ fn get_name(item: &Item) -> Option<String> { // Function to get the name of an i
     None // Return None if the name is not found
 }
 
-// TODO: Fix UI spacing issues
-// TODO: Recursively add directories containing item json files
-// TODO: Add a way to find the game directory
+
+// TODO: Fix UI performance issues if possible
+// TODO: Add a way to reselect the folder if the user wants to change it
 
 fn main() -> Result<()>{
+    // Show native prompt to select the game folder
+    let _ = MessageDialog::new()
+        .set_type(MessageType::Info)
+        .set_title("CDDA Item Browser")
+        .set_text("Please select your root CDDA folder (contains cataclysm-tiles.exe)")
+        .show_alert()
+        .unwrap();
+
+    // Before app opens, show a file browser to select the game folder
+    let result = nfd::open_pick_folder(None).unwrap_or_else(|e| {
+        panic!("{}", e);
+    });
+
+    let selected_folder = match result { // Match the result of the file dialog
+        Response::Okay(file_path) => { // If the user selected a file
+            println!("File path = {:?}", file_path); // Print the file path
+            file_path
+        },
+        Response::OkayMultiple(files) => { // If the user selected multiple files
+            println!("Files {:?}", files);
+            // Choose the first file from the multiple selection
+            files.into_iter().next().unwrap_or_else(|| {
+                println!("No file selected");
+                "".to_string()
+            })
+        },
+        Response::Cancel => { // If the user canceled the file dialog
+            println!("User canceled");
+            "".to_string()
+        },
+    };
+    
+    let game_folder = PathBuf::from(selected_folder).join("data/json/items");
+
      // Load all the json files in the json directory
-    let json_files: Result<Vec<PathBuf>, io::Error> = fs::read_dir("./json")?
-        .map(|res| res.map(|e| e.path()))
-        .collect::<Result<Vec<PathBuf>, io::Error>>()
-        .map_err(|err| err.into()); // Convert the error type
+    // let json_files: Result<Vec<PathBuf>, io::Error> = fs::read_dir(game_folder)?// fs::read_dir("./json")?
+    //     .map(|res| res.map(|e| e.path()))
+    //     .collect::<Result<Vec<PathBuf>, io::Error>>()
+    //     .map_err(|err| err.into()); // Convert the error type
+    // Load all the json files in all the subfolders of the json directory and the json directory itself
+    let json_files: Result<Vec<PathBuf>, io::Error> = walkdir::WalkDir::new(game_folder)
+        .into_iter()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "json"))
+        .map(|e| Ok(e.path().to_path_buf()))
+        .collect::<Result<Vec<PathBuf>, anyhow::Error>>()
+        .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string())); // Convert the error type
 
     // Vector to store the Item structs
     let mut items: Vec<Item> = Vec::new();
@@ -86,13 +129,14 @@ fn main() -> Result<()>{
         egui::CentralPanel::default().show(ctx, |ui| { // Central panel
             ui.heading("Cataclysm: Dark Days Ahead Item Browser");
             // Search bar
+            
+            // Box to contain list of items
+            ui.separator();
+            ui.heading("Items");
             ui.horizontal(|ui| {
                 ui.label("Search:");
                 ui.text_edit_singleline(&mut search_text);
             });
-            // Box to contain list of items
-            ui.separator();
-            ui.heading("Items");
             ui.separator();
             egui::ScrollArea::vertical().show(ui, |ui| { // Scroll area
                 for (index, item) in items.iter().enumerate() {
