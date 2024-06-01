@@ -46,5 +46,6 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: cdda-item-browser.exe
+        tag_name: ${{ github.sha }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
