@@ -21,12 +21,13 @@ jobs:
       run: rustup update stable
     - name: Build
       run: cargo build --release --verbose
+      working-directory: cdda-item-browser
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
       with:
         name: cdda-item-browser
         path: target/release/*.exe
-      working-directory: cdda-item-browser
+      
 
   release:
     needs: build
