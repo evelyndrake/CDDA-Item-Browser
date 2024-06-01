@@ -22,16 +22,17 @@ jobs:
     - name: Build
       run: cargo build --release --verbose
       working-directory: cdda-item-browser
+    - name: Display Directory Structure
+      run: dir cdda-item-browser\target\release
     - name: Upload Artifact
       uses: actions/upload-artifact@v3
       with:
         name: cdda-item-browser
-        path: target/release/*.exe
-      
+        path: cdda-item-browser/target/release/*.exe
 
   release:
     needs: build
-    runs-on: ubuntu-latest  # The release step can run on Ubuntu since it's just managing GitHub releases
+    runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
     - name: Download Artifact
@@ -39,6 +40,8 @@ jobs:
       with:
         name: cdda-item-browser
         path: .
+    - name: Display Directory Structure
+      run: ls -l
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
