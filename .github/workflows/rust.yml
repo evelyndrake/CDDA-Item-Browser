@@ -26,6 +26,7 @@ jobs:
       with:
         name: cdda-item-browser
         path: target/release/*.exe
+      working-directory: cdda-item-browser
 
   release:
     needs: build
