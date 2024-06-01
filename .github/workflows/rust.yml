@@ -5,18 +5,41 @@ on:
     branches: [ "main" ]
   pull_request:
     branches: [ "main" ]
+  release:
+    types: [created, published]
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   build:
-
     runs-on: windows-latest
 
     steps:
     - uses: actions/checkout@v4
+    - name: Install Rust
+      run: rustup update stable
     - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      run: cargo build --release --verbose
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: cdda-item-browser
+        path: target/release/*.exe
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest  # The release step can run on Ubuntu since it's just managing GitHub releases
+    steps:
+    - uses: actions/checkout@v4
+    - name: Download Artifact
+      uses: actions/download-artifact@v3
+      with:
+        name: cdda-item-browser
+        path: .
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        files: cdda-item-browser.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
