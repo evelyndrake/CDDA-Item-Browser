@@ -11,6 +11,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
 
+permissions:
+  contents: write
+  packages: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -45,6 +49,7 @@ jobs:
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
+        token: ${{ secrets.GH_TOKEN }}
         files: cdda-item-browser.exe
         tag_name: ${{ github.sha }}
       env:
