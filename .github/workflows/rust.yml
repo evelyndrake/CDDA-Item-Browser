@@ -51,6 +51,6 @@ jobs:
       with:
         token: ${{ secrets.GH_TOKEN }}
         files: cdda-item-browser.exe
-        tag_name: ${{ github.sha }}
+        tag_name: release-${{ github.run_number }}
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
