@@ -10,8 +10,8 @@ use nfd::Response;
 use native_dialog::{MessageDialog, MessageType};
 struct Item { // Representation of a CDDA item
     data: Value,
+    mod_name: String,
 }
-
 
 fn get_property(data: &Value, property: &str) -> Option<String> { // Function to get a property from a JSON object
     data.get(property)?.as_str().map(|s| s.to_string())
@@ -29,8 +29,6 @@ fn get_name(item: &Item) -> Option<String> { // Function to get the name of an i
     None // Return None if the name is not found
 }
 
-
-// TODO: Fix UI performance issues if possible
 // TODO: Add a way to reselect the folder if the user wants to change it
 
 fn main() -> Result<()>{
@@ -41,11 +39,19 @@ fn main() -> Result<()>{
         .set_text("Please select your root CDDA folder (contains cataclysm-tiles.exe)")
         .show_alert()
         .unwrap();
-
+    
     // Before app opens, show a file browser to select the game folder
     let result = nfd::open_pick_folder(None).unwrap_or_else(|e| {
         panic!("{}", e);
     });
+
+    // Show native prompt to ask if we should include mods
+    let show_mods = MessageDialog::new()
+        .set_type(MessageType::Info)
+        .set_title("CDDA Item Browser")
+        .set_text("Do you want to include modded items?")
+        .show_confirm()
+        .unwrap();
 
     let selected_folder = match result { // Match the result of the file dialog
         Response::Okay(file_path) => { // If the user selected a file
@@ -66,21 +72,40 @@ fn main() -> Result<()>{
         },
     };
     
-    let game_folder = PathBuf::from(selected_folder).join("data/json/items");
+    let game_folder = PathBuf::from(&selected_folder).join("data/json/items");
 
-     // Load all the json files in the json directory
-    // let json_files: Result<Vec<PathBuf>, io::Error> = fs::read_dir(game_folder)?// fs::read_dir("./json")?
-    //     .map(|res| res.map(|e| e.path()))
-    //     .collect::<Result<Vec<PathBuf>, io::Error>>()
-    //     .map_err(|err| err.into()); // Convert the error type
-    // Load all the json files in all the subfolders of the json directory and the json directory itself
-    let json_files: Result<Vec<PathBuf>, io::Error> = walkdir::WalkDir::new(game_folder)
+    let mut json_files: Result<Vec<PathBuf>, io::Error> = walkdir::WalkDir::new(game_folder)
         .into_iter()
         .filter_map(|e| e.ok())
         .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "json"))
         .map(|e| Ok(e.path().to_path_buf()))
         .collect::<Result<Vec<PathBuf>, anyhow::Error>>()
         .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string())); // Convert the error type
+
+    if show_mods { // Add mod support if enabled
+        let mods_folder: PathBuf = PathBuf::from(selected_folder).join("data/mods");
+        // For each mod folder, if it has an items folder, add all the json files in the items folder to the json_files vector
+        let mod_folders: Result<Vec<PathBuf>, io::Error> = fs::read_dir(mods_folder)?
+            .map(|res| res.map(|e| e.path()))
+            .collect::<Result<Vec<PathBuf>, io::Error>>()
+            .map_err(|err| err.into()); // Convert the error type
+        for mod_folder in mod_folders?.iter().map(|file| file.as_ref() as &std::path::Path) { // Use the ? operator to propagate the error and provide a type annotation
+            let mod_items_folder = PathBuf::from(mod_folder).join("items");
+            let mod_json_files: Result<Vec<PathBuf>, io::Error> = walkdir::WalkDir::new(mod_items_folder)
+                .into_iter()
+                .filter_map(|e| e.ok())
+                .filter(|e| e.path().is_file() && e.path().extension().map_or(false, |ext| ext == "json"))
+                .map(|e| Ok(e.path().to_path_buf()))
+                .collect::<Result<Vec<PathBuf>, anyhow::Error>>()
+                .map_err(|err| io::Error::new(io::ErrorKind::Other, err.to_string())); // Convert the error type
+            json_files = json_files.and_then(|mut json_files| {
+                mod_json_files.map(|mod_json_files| {
+                    json_files.extend(mod_json_files);
+                    json_files
+                })
+            });
+        }
+    }
 
     // Vector to store the Item structs
     let mut items: Vec<Item> = Vec::new();
@@ -92,6 +117,7 @@ fn main() -> Result<()>{
         for item_data in data { // Iterate over the items inside the JSON file
             let item = Item { // Create a new Item struct
                 data: item_data,
+                mod_name: file.file_stem().unwrap().to_str().unwrap().to_string(),
             };
             items.push(item);
         }
@@ -157,84 +183,91 @@ fn main() -> Result<()>{
                 }
             });
         });
+        
         // Item properties side panel
         egui::SidePanel::right("side_panel").default_width(300.0).show(ctx, |ui| {
             ui.heading("Information");
             ui.separator();
-            // TODO: Clean this part up, it's redundant and messy in some places
-            if let Some(index) = selected_item {
-                // Display the information of the selected item
-                ui.heading(format!("{}", get_name(&items[index]).unwrap()));
-                // Description
-                if let Some(description) = get_property(&items[index].data, "description") {
-                    ui.label(format!("{}", description));
-                }
-                ui.separator();
-                // Volume
-                if let Some(volume) = get_property(&items[index].data, "volume") {
-                    ui.label(RichText::new("Volume:").strong());
-                    ui.label(format!("{}", volume));
-                }
-                // Weight
-                if let Some(weight) = get_property(&items[index].data, "weight") {
-                    ui.label(RichText::new("Weight:").strong());
-                    ui.label(format!("{}", weight));
-                }
-                // Price
-                if let Some(price) = get_property(&items[index].data, "price_postapoc") {
-                    ui.label(RichText::new("Price:").strong());
-                    ui.label(format!("{}", price));
-                }
-                // Material
-                if let Some(material) = get_property(&items[index].data, "material") {
-                    ui.label(RichText::new("Material:").strong());
-                    ui.label(format!("{}", material));
-                }
-                // Flags
-                if let Some(flags) = items[index].data.get("flags") {
-                    ui.label(RichText::new("Flags:").strong());
-                    for flag in flags.as_array().unwrap() {
-                        ui.label(format!("\t{}", flag.as_str().unwrap()));
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                // TODO: Clean this part up, it's redundant and messy in some places
+                if let Some(index) = selected_item {
+                    // Display the information of the selected item
+                    ui.heading(format!("{}", get_name(&items[index]).unwrap()));
+                    // Description
+                    if let Some(description) = get_property(&items[index].data, "description") {
+                        ui.label(format!("{}", description));
                     }
-                }
-                ui.separator();
-                // Display the rest of the properties
-                for (key, value) in items[index].data.as_object().unwrap() {
-                    // If the line starts with a //, skip over it (developer comments)
-                    if key.starts_with("//") {
-                        continue;
+                    ui.separator();
+                    // Volume
+                    if let Some(volume) = get_property(&items[index].data, "volume") {
+                        ui.label(RichText::new("Volume:").strong());
+                        ui.label(format!("{}", volume));
                     }
-                    let key = {
-                        let mut chars = key.chars();
-                        chars.next().unwrap().to_uppercase().collect::<String>() + chars.as_str()
-                    };
-                    if key != "Name" && key != "Description" && key != "Volume" && key != "Weight" && key != "Price_postapoc" && key != "Price" && key != "Material" && key != "Flags" {
-                        // If a property is a list of values, list them out nicely
-                        if value.is_array() {
-                            ui.label(RichText::new(format!("{}:", key)).strong());
-                            for item in value.as_array().unwrap() {
-                                if item.is_array() {
-                                    for subitem in item.as_array().unwrap() {
-                                        // If it's a number, don't make a new label
-                                        if subitem.is_number() {
-                                            // ui.label(format!("\t {}", subitem));
-                                        } else if subitem.is_string() {
-                                            ui.label(format!("\t {}", subitem.as_str().unwrap()));
-                                        }
-                                    }
-                                } else if item.is_string() {
-                                    ui.label(format!("\t  {}", item.as_str().unwrap()));
-                                }
-                            }
-                        } else if value.is_string() {
-                            ui.label(RichText::new(format!("{}:", key)).strong());
-                            ui.label(format!("{}", value.as_str().unwrap()));
+                    // Weight
+                    if let Some(weight) = get_property(&items[index].data, "weight") {
+                        ui.label(RichText::new("Weight:").strong());
+                        ui.label(format!("{}", weight));
+                    }
+                    // Price
+                    if let Some(price) = get_property(&items[index].data, "price_postapoc") {
+                        ui.label(RichText::new("Price:").strong());
+                        ui.label(format!("{}", price));
+                    }
+                    // Material
+                    if let Some(material) = get_property(&items[index].data, "material") {
+                        ui.label(RichText::new("Material:").strong());
+                        ui.label(format!("{}", material));
+                    }
+                    // Flags
+                    if let Some(flags) = items[index].data.get("flags") {
+                        ui.label(RichText::new("Flags:").strong());
+                        for flag in flags.as_array().unwrap() {
+                            ui.label(format!("\t{}", flag.as_str().unwrap()));
                         }
                     }
-                }
-            } else {
-                ui.label("No item selected");
-            }
+                    
+                    ui.separator();
+                    // Display the rest of the properties
+                    for (key, value) in items[index].data.as_object().unwrap() {
+                        // If the line starts with a //, skip over it (developer comments)
+                        if key.starts_with("//") {
+                            continue;
+                        }
+                        let key = {
+                            let mut chars = key.chars();
+                            chars.next().unwrap().to_uppercase().collect::<String>() + chars.as_str()
+                        };
+                        if key != "Name" && key != "Description" && key != "Volume" && key != "Weight" && key != "Price_postapoc" && key != "Price" && key != "Material" && key != "Flags" {
+                            // If a property is a list of values, list them out nicely
+                            if value.is_array() {
+                                ui.label(RichText::new(format!("{}:", key)).strong());
+                                for item in value.as_array().unwrap() {
+                                    if item.is_array() {
+                                        for subitem in item.as_array().unwrap() {
+                                            // If it's a number, don't make a new label
+                                            if subitem.is_number() {
+                                                // ui.label(format!("\t {}", subitem));
+                                            } else if subitem.is_string() {
+                                                ui.label(format!("\t {}", subitem.as_str().unwrap()));
+                                            }
+                                        }
+                                    } else if item.is_string() {
+                                        ui.label(format!("\t  {}", item.as_str().unwrap()));
+                                    }
+                                }
+                            } else if value.is_string() {
+                                ui.label(RichText::new(format!("{}:", key)).strong());
+                                ui.label(format!("{}", value.as_str().unwrap()));
+                            }
+                        }
+                    }
+                    ui.separator();
+                    // Display the mod name
+                    ui.label(RichText::new("Collection:").strong());
+                    ui.label(format!("{}", items[index].mod_name));
+                } else {
+                    ui.label("No item selected");
+            }});
         });
     });
     Ok(())
